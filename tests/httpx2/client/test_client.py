@@ -239,6 +239,25 @@ def test_merge_relative_url_with_encoded_slashes() -> None:
     assert request.url == "https://www.example.com/base%2Fpath/testing"
 
 
+def test_merge_relative_url_with_base_query() -> None:
+    client = httpx2.Client(base_url="https://www.example.com/api?key=k")
+    assert client.base_url == "https://www.example.com/api/?key=k"
+    assert client.build_request("GET", "items").url == "https://www.example.com/api/items?key=k"
+    assert client.build_request("GET", "/items?x=1").url == "https://www.example.com/api/items?key=k&x=1"
+    assert client.build_request("GET", "items", params={"b": "2"}).url == "https://www.example.com/api/items?b=2"
+    assert client.build_request("GET", "?x=1").url == "https://www.example.com/api/?key=k&x=1"
+    assert client.build_request("GET", "https://other.example/path?x=1").url == "https://other.example/path?x=1"
+
+
+def test_merge_relative_url_with_encoded_base_path_and_query() -> None:
+    client = httpx2.Client(base_url="https://www.example.com/api%2Fv1?key=%2F")
+    assert client.base_url == "https://www.example.com/api%2Fv1/?key=%2F"
+    url = client.build_request("GET", "/item%2Fdetail?x=%3F").url
+    assert url == "https://www.example.com/api%2Fv1/item%2Fdetail?key=%2F&x=%3F"
+    client.base_url = "https://www.example.com/api?key=k"
+    assert client.build_request("GET", "items").url == "https://www.example.com/api/items?key=k"
+
+
 def test_context_managed_transport() -> None:
     class Transport(httpx2.BaseTransport):
         def __init__(self) -> None:
