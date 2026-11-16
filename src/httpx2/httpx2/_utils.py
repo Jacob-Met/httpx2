@@ -3,6 +3,10 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+import sys
+import urllib.request
+from collections.abc import Callable
+from functools import lru_cache
 from re import Pattern
 from typing import TYPE_CHECKING, Any
 from urllib.request import getproxies
@@ -27,6 +31,19 @@ def primitive_value_to_str(value: PrimitiveData) -> str:
     elif value is None:
         return ""
     return str(value)
+
+
+def get_system_proxy_bypass() -> Callable[[str], bool] | None:
+    """
+    The OS proxy fallback has native exclusions that aren't in NO_PROXY.
+
+    Environment proxy settings already have their own mount exclusions.
+    """
+    if sys.platform in ("darwin", "win32") and not urllib.request.getproxies_environment():
+        # The proxy map is already fixed for the lifetime of a client. Avoid
+        # re-reading native system settings for each request to the same host.
+        return lru_cache(maxsize=256)(urllib.request.proxy_bypass)
+    return None
 
 
 def get_environment_proxies() -> dict[str, str | None]:

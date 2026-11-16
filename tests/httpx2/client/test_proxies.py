@@ -324,3 +324,68 @@ def test_scheme_mount_takes_priority_over_equal_network_mount() -> None:
 def test_mount_with_invalid_network() -> None:
     with pytest.raises(httpx2.InvalidURL):
         httpx2.Client(mounts={"all://127.0.0.1:8080/8": httpx2.HTTPTransport()})
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+@pytest.mark.parametrize("client_class", [httpx2.Client, httpx2.AsyncClient])
+def test_system_proxy_bypass_exclusions(
+    monkeypatch: pytest.MonkeyPatch, client_class: type[Any], platform: str
+) -> None:
+    # Simulate the system proxy fallback from macOS/Windows, independent of host OS.
+    import sys
+    import urllib.request
+
+    import httpx2._utils
+
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(httpx2._utils, "getproxies", lambda: {"http": "http://proxy.example:8888"})
+    monkeypatch.setattr(urllib.request, "getproxies_environment", dict)
+    checked: list[str] = []
+
+    def bypass(host: str) -> bool:
+        checked.append(host)
+        return host == "intranet.example"
+
+    monkeypatch.setattr(urllib.request, "proxy_bypass", bypass)
+    client = client_class()
+    proxy = client._transport_for_url(httpx2.URL("http://public.example/"))
+    assert proxy is not client._transport
+    assert client._transport_for_url(httpx2.URL("http://intranet.example/")) is client._transport
+    assert client._transport_for_url(httpx2.URL("http://intranet.example/next")) is client._transport
+    assert checked == ["public.example", "intranet.example"]
+
+    # Explicit proxies and mounts are caller policy, not OS configuration.
+    explicit = client_class(proxy="http://manual.example:8888")
+    assert explicit._transport_for_url(httpx2.URL("http://intranet.example/")) is not explicit._transport
+    no_env = client_class(trust_env=False)
+    assert not no_env._mounts
+
+    manual_transport = (
+        httpx2.HTTPTransport(proxy="http://manual.example:8888")
+        if client_class is httpx2.Client
+        else httpx2.AsyncHTTPTransport(proxy="http://manual.example:8888")
+    )
+    mounted = client_class(mounts={"http://intranet.example": manual_transport})
+    assert mounted._transport_for_url(httpx2.URL("http://intranet.example/")) is manual_transport
+
+
+@pytest.mark.parametrize("client_class", [httpx2.Client, httpx2.AsyncClient])
+def test_environment_proxy_does_not_call_system_bypass(
+    monkeypatch: pytest.MonkeyPatch, client_class: type[Any]
+) -> None:
+    import sys
+    import urllib.request
+
+    import httpx2._utils
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(httpx2._utils, "getproxies", lambda: {"http": "http://proxy.example:8888"})
+    monkeypatch.setattr(urllib.request, "getproxies_environment", lambda: {"http": "http://proxy.example:8888"})
+
+    from unittest.mock import Mock
+
+    bypass = Mock(side_effect=AssertionError("System bypass called for env proxy"))
+    monkeypatch.setattr(urllib.request, "proxy_bypass", bypass)
+    client = client_class()
+    assert client._transport_for_url(httpx2.URL("http://intranet.example/")) is not client._transport
+    bypass.assert_not_called()
