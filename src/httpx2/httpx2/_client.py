@@ -53,7 +53,7 @@ from ._types import (
     TimeoutTypes,
 )
 from ._urls import URL, QueryParams
-from ._utils import URLPattern, get_environment_proxies
+from ._utils import URLPattern, get_environment_proxies, get_system_proxy_bypass
 
 if TYPE_CHECKING:
     import ssl  # pragma: no cover
@@ -223,6 +223,7 @@ class BaseClient:
         return url.copy_with(raw_path=url.raw_path + b"/")
 
     def _get_proxy_map(self, proxy: ProxyTypes | None, allow_env_proxies: bool) -> dict[str, Proxy | None]:
+        self._system_proxy_bypass = get_system_proxy_bypass() if proxy is None and allow_env_proxies else None
         if proxy is None:
             if allow_env_proxies:
                 return {key: None if url is None else Proxy(url=url) for key, url in get_environment_proxies().items()}
@@ -676,6 +677,13 @@ class Client(BaseClient):
             )
             for key, proxy in proxy_map.items()
         }
+        # Only transports supplied by the OS are subject to OS bypass rules.
+        # Explicit caller mounts must not be silently overridden.
+        self._system_proxy_transports = (
+            {transport for transport in self._mounts.values() if transport is not None}
+            if self._system_proxy_bypass is not None
+            else set()
+        )
         if mounts is not None:
             self._mounts.update({URLPattern(key): transport for key, transport in mounts.items()})
 
@@ -730,6 +738,12 @@ class Client(BaseClient):
         """
         for pattern, transport in self._mounts.items():
             if pattern.matches(url):
+                if (
+                    transport in self._system_proxy_transports
+                    and self._system_proxy_bypass is not None
+                    and self._system_proxy_bypass(url.host)
+                ):
+                    return self._transport
                 return self._transport if transport is None else transport
 
         return self._transport
@@ -1514,6 +1528,13 @@ class AsyncClient(BaseClient):
             )
             for key, proxy in proxy_map.items()
         }
+        # Only transports supplied by the OS are subject to OS bypass rules.
+        # Explicit caller mounts must not be silently overridden.
+        self._system_proxy_transports = (
+            {transport for transport in self._mounts.values() if transport is not None}
+            if self._system_proxy_bypass is not None
+            else set()
+        )
         if mounts is not None:
             self._mounts.update({URLPattern(key): transport for key, transport in mounts.items()})
         self._mounts = dict(sorted(self._mounts.items()))
@@ -1567,6 +1588,12 @@ class AsyncClient(BaseClient):
         """
         for pattern, transport in self._mounts.items():
             if pattern.matches(url):
+                if (
+                    transport in self._system_proxy_transports
+                    and self._system_proxy_bypass is not None
+                    and self._system_proxy_bypass(url.host)
+                ):
+                    return self._transport
                 return self._transport if transport is None else transport
 
         return self._transport
