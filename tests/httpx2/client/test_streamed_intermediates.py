@@ -5,7 +5,8 @@ import pytest
 import httpx2
 
 
-def test_streamed_redirect_skips_intermediate_body() -> None:
+@pytest.mark.parametrize("conflicting_framing", [False, True])
+def test_streamed_redirect_skips_intermediate_body(conflicting_framing: bool) -> None:
     consumed: list[bytes] = []
 
     def body() -> Iterator[bytes]:  # pragma: no cover
@@ -15,7 +16,10 @@ def test_streamed_redirect_skips_intermediate_body() -> None:
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         if request.url.path == "/start":
-            return httpx2.Response(302, headers={"location": "/final"}, content=body())
+            headers = {"location": "/final"}
+            if conflicting_framing:
+                headers.update({"content-length": "0", "transfer-encoding": "chunked"})
+            return httpx2.Response(302, headers=headers, content=body())
         return httpx2.Response(200, content=b"done")
 
     with httpx2.Client(transport=httpx2.MockTransport(handler), follow_redirects=True) as client:
@@ -28,7 +32,8 @@ def test_streamed_redirect_skips_intermediate_body() -> None:
 
 
 @pytest.mark.anyio
-async def test_async_streamed_redirect_skips_intermediate_body() -> None:
+@pytest.mark.parametrize("conflicting_framing", [False, True])
+async def test_async_streamed_redirect_skips_intermediate_body(conflicting_framing: bool) -> None:
     consumed: list[bytes] = []
 
     async def body() -> AsyncIterator[bytes]:  # pragma: no cover
@@ -38,7 +43,10 @@ async def test_async_streamed_redirect_skips_intermediate_body() -> None:
 
     async def handler(request: httpx2.Request) -> httpx2.Response:
         if request.url.path == "/start":
-            return httpx2.Response(302, headers={"location": "/final"}, content=body())
+            headers = {"location": "/final"}
+            if conflicting_framing:
+                headers.update({"content-length": "0", "transfer-encoding": "chunked"})
+            return httpx2.Response(302, headers=headers, content=body())
         return httpx2.Response(200, content=b"done")
 
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler), follow_redirects=True) as client:

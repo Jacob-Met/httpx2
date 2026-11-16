@@ -1014,7 +1014,11 @@ class Client(BaseClient):
                         return response
 
                     response.history = list(history)
-                    if stream and not auth.requires_response_body and response.headers.get("content-length") != "0":
+                    if (
+                        stream
+                        and not auth.requires_response_body
+                        and (response.headers.get("content-length") != "0" or "transfer-encoding" in response.headers)
+                    ):
                         response.close()
                     else:
                         response.read()
@@ -1053,7 +1057,9 @@ class Client(BaseClient):
                 if follow_redirects:
                     request = self._build_redirect_request(request, response)
                     history = [*history, response]
-                    if stream and response.headers.get("content-length") != "0":
+                    if stream and (
+                        response.headers.get("content-length") != "0" or "transfer-encoding" in response.headers
+                    ):
                         response.close()
                     else:
                         response.read()
@@ -1862,7 +1868,11 @@ class AsyncClient(BaseClient):
                         return response
 
                     response.history = list(history)
-                    if stream and not auth.requires_response_body and response.headers.get("content-length") != "0":
+                    if (
+                        stream
+                        and not auth.requires_response_body
+                        and (response.headers.get("content-length") != "0" or "transfer-encoding" in response.headers)
+                    ):
                         await response.aclose()
                     else:
                         await response.aread()
@@ -1902,7 +1912,9 @@ class AsyncClient(BaseClient):
                 if follow_redirects:
                     request = self._build_redirect_request(request, response)
                     history = [*history, response]
-                    if stream and response.headers.get("content-length") != "0":
+                    if stream and (
+                        response.headers.get("content-length") != "0" or "transfer-encoding" in response.headers
+                    ):
                         await response.aclose()
                     else:
                         await response.aread()
